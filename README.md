@@ -26,6 +26,7 @@ failure modes visible instead of silent.
 | Refresh-token stampede | 12 concurrent workers see an expired token, all refresh, the provider rotates the refresh token, 11 calls return `invalid_grant`, the integration hard-fails | Single-flight refresh under a lock with a double-checked expiry, and the rotated token is persisted before the lock is released |
 | PII in logs | A debug line logs the contact upsert body and every email address lands in the log aggregator | Recursive redaction of credentials, emails, and phone numbers before any log record is emitted |
 | Untestable integrations | Every test needs a live sub-account and a private token, so there are no tests | An offline mock server with fault injection; the whole suite runs on a clean machine in seconds |
+| Webhook replays processed twice | A captured delivery is resent, or a platform retry arrives after a partial write, and the contact is created or the invoice is paid twice | Signature + timestamp window + an atomic seen-set; a duplicate returns `200` with `process=false`, so the sender stops retrying and your code does not run again |
 
 ## Install
 
@@ -65,6 +66,43 @@ Idempotent writes:
 contacts.upsert({"email": "jane@example.com"}, idempotency_key="sync-run-2026-11-21")
 ```
 
+## Webhooks
+
+```python
+from ghl_webhooks import Receiver
+
+receiver = Receiver(["whsec_..."])
+
+def handle_delivery(headers, raw_body):
+    intake = receiver.handle(headers, raw_body)
+    if intake.should_process:
+        dispatch(intake.event)      # a real, first-time, verified event
+    return intake.http_status, {"status": intake.status.value}
+```
+
+Three things this does that a naive handler does not:
+
+* **Order matters.** Nothing is parsed until the signature verifies, and no event id is
+  claimed until every other check has passed — so an attacker cannot burn event ids to
+  block genuine deliveries.
+* **Duplicates are visible.** A repeat delivery answers `200` with `process=false`. The
+  sender stops retrying; your application does not re-run. "Received" and "acted on" are
+  different questions and both get an answer.
+* **Unknown event types are kept.** An unrecognised type is delivered with
+  `event.is_known == False` and its raw body intact. Silently discarding it is how an
+  integration appears healthy while ingesting nothing.
+
+Signature framing (header names, hex vs base64, what exactly is signed) is configuration
+rather than a guess, because getting it wrong silently rejects real traffic. See
+`docs/adr/ADR-002-webhook-signature-framing.md` for the default assumption and how to
+confirm it against one captured delivery.
+
+Run the intake demo — no network, no credentials:
+
+```bash
+python examples/demo_webhooks.py
+```
+
 ## Offline development
 
 ```bash
@@ -95,6 +133,11 @@ src/ghl_client/
 src/ghl_mock/
   store.py        in-memory contacts with email/phone dedupe and cursor paging
   app.py          stdlib HTTP server + fault injection admin endpoints
+src/ghl_webhooks/
+  signature.py    HMAC verification; header/encoding/prefix/signed-payload are configuration
+  replay.py       timestamp window + atomic seen-set behind a one-method store protocol
+  events.py       event parsing that preserves unknown types instead of dropping them
+  receiver.py     ordered intake: size -> signature -> timestamp -> parse -> claim
 ```
 
 Design decisions worth defending:
@@ -117,13 +160,14 @@ Built and tested:
 * exhaustive cursor pagination with partial-result signalling
 * contacts search and idempotent upsert
 * offline mock server with fault injection (429 / 5xx / auth rejection)
-* 45 tests, no network, no credentials
+* webhook intake: HMAC verification, timestamp window, replay seen-set, unknown-type preservation
+* 83 tests, no network, no credentials
 
 Not built yet, on purpose — in this order:
 
-1. webhook receiver with signature verification and replay protection
-2. MCP tool surface with a governance layer (scope, dry-run, audit log)
-3. live smoke tests behind an opt-in environment flag
+1. MCP tool surface with a governance layer (scope, dry-run, audit log)
+2. live smoke tests behind an opt-in environment flag
+3. durable replay store adapter (Redis/Postgres) beyond the in-process default
 
 ## License
 

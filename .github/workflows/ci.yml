@@ -25,3 +25,5 @@ jobs:
         run: python -m pytest -q
       - name: Run offline demo against the mock
         run: python examples/demo_offline.py
+      - name: Run webhook intake demo
+        run: python examples/demo_webhooks.py
