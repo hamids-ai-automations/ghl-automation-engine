@@ -349,6 +349,7 @@ Built and tested:
 * durable warehouse sink: `SqliteWarehouse` keeps the reference sink's contract in a file, one transaction per record, one current row per key enforced by index, and a manifest whose digest is reproducible for identical data
 * snapshot CLI: `ghl-snapshot write` records the warehouse manifest to a file, `ghl-snapshot diff` exits 1 on any difference, and identical data produces byte-identical snapshots
 * 377 tests, no network, no credentials
+* `python examples/demo_snapshot.py` shows identical loads producing byte-identical snapshots
 
 Not built yet, on purpose — in this order:
 

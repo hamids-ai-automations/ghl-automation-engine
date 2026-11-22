@@ -11,3 +11,4 @@ htmlcov/
 .env
 *.token.json
 .DS_Store
+.pytest-tmp/

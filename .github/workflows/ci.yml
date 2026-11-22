@@ -31,3 +31,5 @@ jobs:
         run: python examples/demo_attribution.py
       - name: Run attribution case study
         run: python examples/case_lead_attribution.py
+      - name: Run snapshot determinism demo
+        run: python examples/demo_snapshot.py

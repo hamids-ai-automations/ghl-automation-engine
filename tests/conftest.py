@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import getpass
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -33,22 +30,20 @@ class FakeClock:
         self.now += seconds
 
 
-def pytest_sessionfinish(session: pytest.Session) -> None:
-    """Repair a dangling ``pytest-current`` link before pytest cleans up itself.
+if sys.platform == "win32":
+    # pytest points a "<prefix>current" directory symlink at the newest temp dir
+    # and deletes the stale one during cleanup. On machines where deleting a
+    # directory symlink is denied, that cleanup raises PermissionError and turns a
+    # fully green run into a failure. Skipping the bookkeeping link is enough:
+    # nothing under test reads it.
+    from _pytest import pathlib as _pytest_pathlib
+    from _pytest import tmpdir as _pytest_tmpdir
 
-    On Windows ``os.unlink()`` on a directory symlink whose target is gone raises
-    ``PermissionError``, and pytest's own teardown makes exactly that call, so a
-    run where every test passed still exits non-zero. ``os.rmdir`` removes the
-    link itself, which is all this needs.
-    """
+    def _skip_numbered_dir_symlink(*args: object, **kwargs: object) -> None:
+        return None
 
-    root = Path(tempfile.gettempdir()) / f"pytest-of-{getpass.getuser()}"
-    current = root / "pytest-current"
-    try:
-        if current.is_symlink() and not current.exists():
-            os.rmdir(current)
-    except OSError:
-        pass
+    _pytest_pathlib._force_symlink = _skip_numbered_dir_symlink  # type: ignore[assignment]
+    _pytest_tmpdir._force_symlink = _skip_numbered_dir_symlink  # type: ignore[assignment]
 
 
 @pytest.fixture
@@ -88,4 +83,3 @@ def mock_client(mock_server):
         location_id="loc_test",
     )
     return state, client
-
