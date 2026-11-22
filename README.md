@@ -287,6 +287,35 @@ a failure is never dressed up as a confident routing decision.
 Taxonomy, the full escalation table and the failure contract:
 [docs/TRIAGE.md](docs/TRIAGE.md).
 
+## Reporting warehouse
+
+`ghl_warehouse` answers the question a sync usually gets wrong: **what happens when
+the same data arrives twice?** Nothing — a payload whose tracked attributes hash to
+the current version is not a new version, so the dimension records change instead of
+polling frequency.
+
+```python
+from ghl_warehouse import (
+    InMemoryWarehouse, JsonFileWatermarkStore, IncrementalContactExtractor,
+)
+
+extractor = IncrementalContactExtractor(
+    contacts_resource, InMemoryWarehouse(), JsonFileWatermarkStore("state/watermarks.json")
+)
+
+plan = extractor.run(dry_run=True)   # no writes, mark untouched
+stats = extractor.run()              # load, then advance
+stats.new_versions, stats.unchanged, stats.pages
+```
+
+The load order is the design: read the mark, walk every page (a partial walk raises
+`IncompleteExtractError` and loads nothing), load rows, and only then advance the
+mark — as far as what was *loaded*, never what was *seen*. Watermarks are monotonic
+and reads are overlapped by 300s, because commits do not arrive in timestamp order.
+
+Schema, load rules, failure table and the client-side cost disclaimer:
+[docs/REPORTING.md](docs/REPORTING.md).
+
 ## Status
 
 Built and tested:
@@ -305,7 +334,10 @@ Built and tested:
 * conversation triage: 8-intent taxonomy with stated exclusions, escalation policy
   with recorded reasons and fixed precedence, fail-closed classification,
   drafts-only by construction (`auto_reply_allowed` is never true)
-* 237 tests, no network, no credentials
+* reporting warehouse: star schema validated at import, type-2 contact dimension
+  keyed on a payload hash, monotonic watermarks advanced only after a load,
+  interrupted and replayed runs proven idempotent by tests
+* 309 tests, no network, no credentials
 
 Not built yet, on purpose — in this order:
 
@@ -315,6 +347,9 @@ Not built yet, on purpose — in this order:
 4. the triage classifier and its labelled evaluation set (GHL-023 / GHL-024) —
    until that harness reports accuracy, cost and latency, no accuracy number is
    quoted for triage anywhere
+5. opportunity / conversation / attribution facts and a durable SQL sink for the
+   warehouse (GHL-026 / GHL-027); today the contact dimension is the only grain,
+   and `InMemoryWarehouse` is a reference sink, not storage
 
 ## License
 
