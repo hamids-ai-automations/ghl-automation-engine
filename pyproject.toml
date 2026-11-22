@@ -19,6 +19,7 @@ dev = ["pytest>=8"]
 [project.scripts]
 ghl-mock = "ghl_mock.__main__:main"
 ghl-mcp = "ghl_mcp.server:main"
+ghl-snapshot = "ghl_warehouse.snapshot:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

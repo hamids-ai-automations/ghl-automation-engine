@@ -347,7 +347,8 @@ Built and tested:
 * opportunity fact at deal grain: stage moves versioned, stale payloads ignored,
   open value defined once, mock endpoints for `/opportunities` covered end to end
 * durable warehouse sink: `SqliteWarehouse` keeps the reference sink's contract in a file, one transaction per record, one current row per key enforced by index, and a manifest whose digest is reproducible for identical data
-* 355 tests, no network, no credentials
+* snapshot CLI: `ghl-snapshot write` records the warehouse manifest to a file, `ghl-snapshot diff` exits 1 on any difference, and identical data produces byte-identical snapshots
+* 377 tests, no network, no credentials
 
 Not built yet, on purpose — in this order:
 

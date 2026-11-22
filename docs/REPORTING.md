@@ -161,6 +161,14 @@ What the file adds beyond storage:
 * a partial unique index on `(key) WHERE is_current = 1`, because the DDL cannot say "at most one current row"
 * `manifest()`, which hashes each table's ordered contents: same source data in, same digest out. It is a reproducibility check, never a report.
 
+## Snapshots
+
+`ghl-snapshot write --db warehouse.sqlite --out before.json` records the manifest in a file. `ghl-snapshot diff before.json after.json` compares two of them and exits 1 when they differ, so "did this run change the warehouse" is a command, not a review.
+
+The file carries no wall clock. Two warehouses loaded from the same payload sequence produce byte-identical snapshots; that is a test, not a promise. The diff compares digests rather than row counts, because a corrected value inside an existing version row keeps the count and still needs to surface.
+
+Snapshot format version and star schema version are separate fields: a schema bump says the data model moved, a format bump says this file moved.
+
 ## Not built yet
 
 - Conversation and attribution facts (contact and opportunity grains today).

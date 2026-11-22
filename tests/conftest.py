@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import getpass
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -9,7 +12,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ghl_mock import MockState, serve_in_thread  # noqa: E402
+from ghl_mock import MockState, serve_in_thread
 
 
 class FakeClock:
@@ -28,6 +31,24 @@ class FakeClock:
 
     def advance(self, seconds: float) -> None:
         self.now += seconds
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Repair a dangling ``pytest-current`` link before pytest cleans up itself.
+
+    On Windows ``os.unlink()`` on a directory symlink whose target is gone raises
+    ``PermissionError``, and pytest's own teardown makes exactly that call, so a
+    run where every test passed still exits non-zero. ``os.rmdir`` removes the
+    link itself, which is all this needs.
+    """
+
+    root = Path(tempfile.gettempdir()) / f"pytest-of-{getpass.getuser()}"
+    current = root / "pytest-current"
+    try:
+        if current.is_symlink() and not current.exists():
+            os.rmdir(current)
+    except OSError:
+        pass
 
 
 @pytest.fixture
