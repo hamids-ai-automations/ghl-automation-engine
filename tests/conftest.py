@@ -42,8 +42,13 @@ if sys.platform == "win32":
     def _skip_numbered_dir_symlink(*args: object, **kwargs: object) -> None:
         return None
 
+    def _skip_dead_symlink_cleanup(*args: object, **kwargs: object) -> None:
+        return None
+
     _pytest_pathlib._force_symlink = _skip_numbered_dir_symlink  # type: ignore[assignment]
+    _pytest_pathlib.cleanup_dead_symlinks = _skip_dead_symlink_cleanup  # type: ignore[assignment]
     _pytest_tmpdir._force_symlink = _skip_numbered_dir_symlink  # type: ignore[assignment]
+    _pytest_tmpdir.cleanup_dead_symlinks = _skip_dead_symlink_cleanup  # type: ignore[assignment]
 
 
 @pytest.fixture
