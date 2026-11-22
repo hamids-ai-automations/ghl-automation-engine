@@ -186,6 +186,12 @@ src/ghl_webhooks/
   replay.py       timestamp window + atomic seen-set behind a one-method store protocol
   events.py       event parsing that preserves unknown types instead of dropping them
   receiver.py     ordered intake: size -> signature -> timestamp -> parse -> claim
+src/ghl_attribution/
+  mapping.py      required field keys, live id binding, drift as a startup error
+  events.py       webhook body -> touch; "no campaign signal" is a first-class answer
+  policy.py       which fields may be written: blanks + activity time, credit preserved
+  ledger.py       event claim store (in-process default, protocol for a durable one)
+  engine.py       discovery -> claim -> compare -> upsert; dry run returns the delta
 ```
 
 Design decisions worth defending:
@@ -239,6 +245,17 @@ result.applied       # ("utm_source", "utm_medium", "utm_campaign", "first_touch
 
 Full detail, including the required field keys: [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md).
 
+A worked case runs offline — seven relay deliveries (two of them redeliveries), a
+later touch, a direct revisit, a dry run, and a mid-flight schema drift:
+
+```bash
+python examples/case_lead_attribution.py
+```
+
+It ends with two contacts, the paid-search credit intact, and the drift refused
+before the first write. Write-up: [docs/CASE-STUDY-ATTRIBUTION.md](docs/CASE-STUDY-ATTRIBUTION.md)
+— figures that need a real deployment are marked `TBD`, not guessed.
+
 ## Status
 
 Built and tested:
@@ -253,13 +270,14 @@ Built and tested:
   location guard, session budget, digest-only audit log, blocked tools declared not faked
 * attribution engine: append-only first-touch credit, event claim + upsert ledger,
   custom-field discovery with drift refusal, dry-run plans
-* 191 tests, no network, no credentials
+* attribution case study: reproducible demo + page, invariants pinned by tests
+* 198 tests, no network, no credentials
 
 Not built yet, on purpose — in this order:
 
 1. live smoke tests behind an opt-in environment flag
 2. durable replay store adapter (Redis/Postgres) beyond the in-process default
-3. the demos that use this server
+3. multi-touch weighting (first touch is the only model implemented today)
 
 ## License
 
