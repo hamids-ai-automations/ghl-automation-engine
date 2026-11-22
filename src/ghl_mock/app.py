@@ -9,10 +9,14 @@ Endpoints
     POST /contacts/upsert
     POST /contacts/search
     GET  /contacts/{id}
+    GET  /locations/{locationId}/customFields
     POST /__admin/inject     {path, status, times, retry_after}
     POST /__admin/reset
     GET  /__admin/requests
     GET  /__admin/stats
+    POST /__admin/fields     {customFields: [...]}  -- simulate schema drift
+    POST /__admin/fields/retype {fieldKey, dataType}
+    POST /__admin/fields/drop {fieldKey}
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from .store import ContactStore
+from .store import ContactStore, CustomFieldStore
 
 DEFAULT_TOKEN = "test-token"
 
@@ -42,6 +46,7 @@ class Fault:
 @dataclass
 class MockState:
     store: ContactStore = field(default_factory=ContactStore)
+    fields: CustomFieldStore = field(default_factory=CustomFieldStore)
     faults: dict[str, list[Fault]] = field(default_factory=dict)
     requests: list[dict[str, Any]] = field(default_factory=list)
     token: str = DEFAULT_TOKEN
@@ -71,6 +76,7 @@ class MockState:
 
     def reset(self) -> None:
         self.store.reset()
+        self.fields = CustomFieldStore()
         self.faults.clear()
         self.requests.clear()
 
@@ -173,6 +179,25 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/__admin/requests" and method == "GET":
             return 200, {"requests": state.requests}, None
 
+        if path == "/__admin/fields" and method == "POST":
+            data = self._read_json()
+            return 200, {"customFields": state.fields.replace(data.get("customFields") or [])}, None
+
+        if path == "/__admin/fields/retype" and method == "POST":
+            data = self._read_json()
+            changed = state.fields.retype(str(data.get("fieldKey") or ""), str(data.get("dataType") or ""))
+            return 200, {"changed": changed, "customFields": state.fields.list()}, None
+
+        if path == "/__admin/fields/drop" and method == "POST":
+            data = self._read_json()
+            dropped = state.fields.drop(str(data.get("fieldKey") or ""))
+            return 200, {"dropped": dropped, "customFields": state.fields.list()}, None
+
+        if path.startswith("/locations/") and path.endswith("/customFields") and method == "GET":
+            if not self._authorized():
+                return 401, {"error": "unauthorized", "message": "missing or bad token"}, None
+            return 200, {"customFields": state.fields.list()}, None
+
         if path == "/__admin/stats" and method == "GET":
             return (
                 200,
@@ -180,6 +205,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "contacts": len(list(state.store.all_contacts())),
                     "created": state.store.created,
                     "updated": state.store.updated,
+                    "customFieldWrites": state.store.custom_field_writes,
                     "requests": len(state.requests),
                 },
                 None,

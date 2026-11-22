@@ -27,3 +27,5 @@ jobs:
         run: python examples/demo_offline.py
       - name: Run webhook intake demo
         run: python examples/demo_webhooks.py
+      - name: Run attribution demo
+        run: python examples/demo_attribution.py

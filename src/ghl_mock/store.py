@@ -24,6 +24,7 @@ class Contact:
     firstName: str | None = None
     lastName: str | None = None
     tags: list[str] = field(default_factory=list)
+    customFields: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -34,7 +35,86 @@ class Contact:
             "firstName": self.firstName,
             "lastName": self.lastName,
             "tags": list(self.tags),
+            "customFields": [dict(item) for item in self.customFields],
         }
+
+
+@dataclass
+class CustomField:
+    id: str
+    name: str
+    fieldKey: str
+    dataType: str = "TEXT"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "fieldKey": self.fieldKey,
+            "dataType": self.dataType,
+            "model": "contact",
+        }
+
+
+def default_custom_fields() -> list[CustomField]:
+    """The field set the attribution map expects, as a fresh location has it."""
+
+    specs = (
+        ("cf_attribution_source", "Attribution Source", "contact.attribution_source", "TEXT"),
+        ("cf_attribution_medium", "Attribution Medium", "contact.attribution_medium", "TEXT"),
+        ("cf_attribution_campaign", "Attribution Campaign", "contact.attribution_campaign", "TEXT"),
+        ("cf_attribution_content", "Attribution Content", "contact.attribution_content", "TEXT"),
+        ("cf_attribution_landing_page", "Landing Page", "contact.attribution_landing_page", "TEXT"),
+        ("cf_attribution_first_touch_at", "First Touch At", "contact.attribution_first_touch_at", "DATE"),
+        ("cf_attribution_last_touch_at", "Last Touch At", "contact.attribution_last_touch_at", "DATE"),
+        ("cf_gclid", "GCLID", "contact.gclid", "TEXT"),
+        ("cf_fbclid", "FBCLID", "contact.fbclid", "TEXT"),
+    )
+    return [CustomField(*spec) for spec in specs]
+
+
+class CustomFieldStore:
+    """Location schema. Mutable on purpose: drift must be testable."""
+
+    def __init__(self, fields: Iterable[CustomField] | None = None) -> None:
+        self._lock = threading.Lock()
+        self._fields: list[CustomField] = list(fields) if fields is not None else default_custom_fields()
+
+    def list(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [item.to_dict() for item in self._fields]
+
+    def replace(self, fields: Iterable[dict[str, Any] | CustomField]) -> list[dict[str, Any]]:
+        parsed: list[CustomField] = []
+        for item in fields:
+            if isinstance(item, CustomField):
+                parsed.append(item)
+            else:
+                parsed.append(
+                    CustomField(
+                        id=str(item.get("id") or ""),
+                        name=str(item.get("name") or ""),
+                        fieldKey=str(item.get("fieldKey") or item.get("key") or ""),
+                        dataType=str(item.get("dataType") or "TEXT"),
+                    )
+                )
+        with self._lock:
+            self._fields = parsed
+            return [item.to_dict() for item in self._fields]
+
+    def retype(self, field_key: str, data_type: str) -> bool:
+        with self._lock:
+            for item in self._fields:
+                if item.fieldKey == field_key:
+                    item.dataType = data_type
+                    return True
+            return False
+
+    def drop(self, field_key: str) -> bool:
+        with self._lock:
+            before = len(self._fields)
+            self._fields = [item for item in self._fields if item.fieldKey != field_key]
+            return len(self._fields) != before
 
 
 class ContactStore:
@@ -46,6 +126,7 @@ class ContactStore:
         self._seq = itertools.count(1)
         self.created = 0
         self.updated = 0
+        self.custom_field_writes = 0
 
     # -- writes --------------------------------------------------------------
 
@@ -74,7 +155,32 @@ class ContactStore:
             if isinstance(payload.get("tags"), list):
                 merged = list(dict.fromkeys([*contact.tags, *payload["tags"]]))
                 contact.tags = merged
+            if isinstance(payload.get("customFields"), list):
+                self._merge_custom_fields(contact, payload["customFields"])
             return contact, created
+
+    def _merge_custom_fields(self, contact: Contact, incoming: list[Any]) -> None:
+        """Replace by field id, the way GHL upsert behaves."""
+
+        merged: dict[str, dict[str, Any]] = {
+            str(item.get("id")): dict(item)
+            for item in contact.customFields
+            if isinstance(item, dict) and item.get("id")
+        }
+        changed = 0
+        for item in incoming:
+            if not isinstance(item, dict):
+                continue
+            field_id = item.get("id")
+            if not field_id:
+                continue
+            entry = {"id": str(field_id), "value": item.get("value")}
+            if (merged.get(str(field_id)) or {}).get("value") != entry["value"]:
+                changed += 1
+            merged[str(field_id)] = entry
+        if changed:
+            contact.customFields = list(merged.values())
+            self.custom_field_writes += changed
 
     def _find(self, email: str | None, phone: str | None) -> Contact | None:
         for cid in self._order:
@@ -140,3 +246,4 @@ class ContactStore:
             self._order.clear()
             self.created = 0
             self.updated = 0
+            self.custom_field_writes = 0

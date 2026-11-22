@@ -203,6 +203,42 @@ Design decisions worth defending:
   socket-level failure becomes a retryable `GhlTransportError` instead of a bare `OSError`
   that a calling workflow has no reason to handle.
 
+## Attribution engine
+
+The server is only half of it: leads arrive from forms, quizzes, and landing
+pages, and the reason to send them to GoHighLevel is attribution. `ghl_attribution`
+does that without the two failure modes that make attribution worthless — a lead
+re-credited on every later visit, and one lead in the CRM three times over.
+
+```python
+from ghl_attribution import AttributionEngine
+
+engine = AttributionEngine(client)                 # resolves custom field ids at startup
+result = engine.ingest({                            # webhook body, verbatim
+    "event_id": "evt-9f2",
+    "email": "lead@example.com",
+    "utm_source": "google",
+    "utm_medium": "cpc",
+    "utm_campaign": "spring",
+    "occurred_at": "2026-11-20T10:00:00Z",
+})
+result.status        # IngestStatus.APPLIED
+result.applied       # ("utm_source", "utm_medium", "utm_campaign", "first_touch_at", "last_touch_at")
+```
+
+* **Credit is append-only.** A later touch from another source advances
+  `last_touch_at` and nothing else. `utm_source=direct` from a returning lead
+  cannot erase the campaign that paid for them.
+* **Two idempotency layers.** The event claim stops a redelivered webhook, the
+  client's upsert ledger stops a duplicate contact after a failed retry, and the
+  claim is released on failure so a retry is the same operation.
+* **Refuses to start on schema drift.** Missing, retyped, or duplicated custom
+  fields raise `AttributionMappingError` with every problem listed — before the
+  first write, not after the reports break.
+* `dry_run=True` returns the exact field payload without writing.
+
+Full detail, including the required field keys: [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md).
+
 ## Status
 
 Built and tested:
@@ -215,13 +251,15 @@ Built and tested:
 * webhook intake: HMAC verification, timestamp window, replay seen-set, unknown-type preservation
 * governed MCP server: read-only default, argument-bound single-use approvals, `dry_run`,
   location guard, session budget, digest-only audit log, blocked tools declared not faked
-* 168 tests, no network, no credentials
+* attribution engine: append-only first-touch credit, event claim + upsert ledger,
+  custom-field discovery with drift refusal, dry-run plans
+* 191 tests, no network, no credentials
 
 Not built yet, on purpose — in this order:
 
 1. live smoke tests behind an opt-in environment flag
 2. durable replay store adapter (Redis/Postgres) beyond the in-process default
-3. attribution engine (Project B), then the demos that use this server
+3. the demos that use this server
 
 ## License
 
