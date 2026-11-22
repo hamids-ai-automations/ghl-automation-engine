@@ -44,3 +44,27 @@ def mock_server():
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.fixture
+def mock_client(mock_server):
+    """A real client pointed at the real mock socket, authenticated with the mock token."""
+
+    from ghl_client.auth import PrivateIntegrationToken
+    from ghl_client.client import GhlClient
+    from ghl_client.ratelimit import SlidingWindowLimiter
+    from ghl_client.retry import RetryPolicy
+    from ghl_client.transport import UrllibTransport
+    from ghl_mock import DEFAULT_TOKEN
+
+    state, base_url = mock_server
+    client = GhlClient(
+        PrivateIntegrationToken(token=DEFAULT_TOKEN),
+        base_url=base_url,
+        transport=UrllibTransport(),
+        limiter=SlidingWindowLimiter(capacity=10_000, window=1.0),
+        retry_policy=RetryPolicy(max_attempts=2, base_delay=0.0, jitter=False),
+        location_id="loc_test",
+    )
+    return state, client
+

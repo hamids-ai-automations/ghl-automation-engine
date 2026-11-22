@@ -103,6 +103,46 @@ Run the intake demo — no network, no credentials:
 python examples/demo_webhooks.py
 ```
 
+## Governed MCP server
+
+```bash
+export GHL_PIT_TOKEN=pit-...      export GHL_LOCATION_ID=loc_...
+export GHL_MCP_MODE=read-write    # default is read-only
+export GHL_MCP_APPROVAL_SECRET=... # required before any write will run
+ghl-mcp                            # JSON-RPC over stdio
+```
+
+Five tools: `get_contact`, `search_contacts`, `upsert_contact`, `rate_limit_status`,
+`server_governance`. Scope is narrow on purpose — a tool that returns a plausible empty
+result is worse than a tool that is absent, so the unimplemented ones are listed with
+reasons instead of being faked.
+
+The part that matters is the interceptor every call passes through, in this order:
+
+1. **Mode.** Read-only unless the operator turned writes on. A refusal is `read_only_mode`,
+   never a `200` with an empty body.
+2. **Schema.** Unknown properties are rejected, so there is no `locationId` to argue about —
+   cross-account access is not a policy, it is a shape that does not exist.
+3. **Location.** The server is bound to one sub-account; an unbound client gets
+   `cross_location` rather than a default location.
+4. **Approval.** A write needs a single-use, short-lived token issued for *that tool and
+   those exact arguments*. A token for one contact cannot be spent on another.
+5. **Budget.** Session ceilings stop a loop before the platform rate limiter or the invoice
+   does.
+
+```bash
+# the human approves one specific change
+ghl-mcp approve --tool upsert_contact \
+  --args '{"email":"ada@example.com","first_name":"Ada"}'
+```
+
+`upsert_contact` also takes `dry_run: true`, which returns the payload it *would* send and
+touches nothing. `server_governance` reports the active policy, the PII allowlist, and the
+blocked-tool list. Without `GHL_PIT_TOKEN` the server exits `2` and says why, instead of
+starting up to answer 401s that an agent would narrate as "no contacts found".
+
+Full detail: [`docs/MCP.md`](docs/MCP.md).
+
 ## Offline development
 
 ```bash
@@ -133,6 +173,14 @@ src/ghl_client/
 src/ghl_mock/
   store.py        in-memory contacts with email/phone dedupe and cursor paging
   app.py          stdlib HTTP server + fault injection admin endpoints
+src/ghl_mcp/
+  server.py       JSON-RPC over stdio; call_tool is the only path to a handler
+  governance.py   mode, approval tokens bound to arguments, session budget, location guard
+  tools.py        five tools, each declaring scope, risk, endpoint and dry-run support
+  registry.py     tool specs; carries requires_location per tool
+  schema.py       strict JSON Schema subset: unknown keywords raise instead of being ignored
+  projection.py   PII allowlist and field truncation for anything a model will read
+  audit.py        one JSON line per call: digests, decision, duration — never the arguments
 src/ghl_webhooks/
   signature.py    HMAC verification; header/encoding/prefix/signed-payload are configuration
   replay.py       timestamp window + atomic seen-set behind a one-method store protocol
@@ -150,6 +198,10 @@ Design decisions worth defending:
 * **No dependency on the platform's SDK.** The SDK pulls its own HTTP stack and
   its own opinions about retries; both would fight with the retry and budget logic
   above.
+* **A dropped connection is a dataset, not a surprise.** `urllib` wraps neither
+  `ECONNRESET` nor Windows' `WSAECONNABORTED`, so the transport types them itself: every
+  socket-level failure becomes a retryable `GhlTransportError` instead of a bare `OSError`
+  that a calling workflow has no reason to handle.
 
 ## Status
 
@@ -161,13 +213,15 @@ Built and tested:
 * contacts search and idempotent upsert
 * offline mock server with fault injection (429 / 5xx / auth rejection)
 * webhook intake: HMAC verification, timestamp window, replay seen-set, unknown-type preservation
-* 83 tests, no network, no credentials
+* governed MCP server: read-only default, argument-bound single-use approvals, `dry_run`,
+  location guard, session budget, digest-only audit log, blocked tools declared not faked
+* 168 tests, no network, no credentials
 
 Not built yet, on purpose — in this order:
 
-1. MCP tool surface with a governance layer (scope, dry-run, audit log)
-2. live smoke tests behind an opt-in environment flag
-3. durable replay store adapter (Redis/Postgres) beyond the in-process default
+1. live smoke tests behind an opt-in environment flag
+2. durable replay store adapter (Redis/Postgres) beyond the in-process default
+3. attribution engine (Project B), then the demos that use this server
 
 ## License
 

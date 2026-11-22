@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: a60f8e46820ea466ef0868a20e79d739_59697ccce5f011f184bd52540072b1e8
+    ReservedCode1: yyRTeocXxOJPfVOAncb7cgH1EwrwjA0bo9lxd4u6yYWlwgOYcf+PTAu6RSaj+eJkluqHzKuQ7adZ7NYxR74vSkIJq+GXsVNdpDDVq6ZabDmF52L/A1TTTRqnZi+IG3PjnZjhFDkFlAnKEiqCPU9XArb2LeXE+lmjxBrCTf5Rl3e1p/8Q0DXrndkmEaI=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: a60f8e46820ea466ef0868a20e79d739_59697ccce5f011f184bd52540072b1e8
+    ReservedCode2: yyRTeocXxOJPfVOAncb7cgH1EwrwjA0bo9lxd4u6yYWlwgOYcf+PTAu6RSaj+eJkluqHzKuQ7adZ7NYxR74vSkIJq+GXsVNdpDDVq6ZabDmF52L/A1TTTRqnZi+IG3PjnZjhFDkFlAnKEiqCPU9XArb2LeXE+lmjxBrCTf5Rl3e1p/8Q0DXrndkmEaI=
+---
+
 # ADR-002: Webhook signature framing is configuration, not a guess
 
 - **Status:** Accepted
@@ -73,3 +84,4 @@ account, treat the default as unverified.
   configured set to one.
 - If HighLevel later publishes an Ed25519 scheme, add it as another config rather than
   replacing HMAC: existing deployments should not need a flag day.
+*（内容由AI生成，仅供参考）*

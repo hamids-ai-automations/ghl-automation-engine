@@ -7,6 +7,7 @@ dependency, so ``git clone && pytest`` works on a clean machine.
 
 from __future__ import annotations
 
+import http.client
 import json
 import socket
 import urllib.error
@@ -89,6 +90,14 @@ class UrllibTransport:
             if isinstance(getattr(exc, "reason", None), (socket.timeout, TimeoutError)):
                 raise GhlTimeoutError(f"request timed out after {timeout}s", url=url) from exc
             raise GhlTransportError(f"transport failure: {exc.reason}", url=url) from exc
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as exc:
+            # Windows raises ConnectionAbortedError (WSAECONNABORTED) where POSIX raises
+            # ECONNRESET, and urllib wraps neither. A peer that drops mid-response is a
+            # retryable transport fault, not a bare OSError leaked to the caller.
+            raise GhlTransportError(f"connection dropped: {exc}", url=url) from exc
+        except http.client.HTTPException as exc:
+            # A truncated or malformed status line means the response never completed.
+            raise GhlTransportError(f"incomplete response: {exc}", url=url) from exc
 
 
 class MockTransport:

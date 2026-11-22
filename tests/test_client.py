@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pytest
 
 import json
 
@@ -174,3 +175,46 @@ def test_explicit_idempotency_key_beats_fingerprint():
     contacts.upsert({"email": "a@example.com"}, idempotency_key="run-2")
 
     assert len(transport.requests) == 2
+
+# ----------------------------------------------------- dropped connections (Windows)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [ConnectionResetError(10054, "reset"), ConnectionAbortedError(10053, "aborted"),
+     BrokenPipeError(10053, "pipe")],
+    ids=["reset", "aborted", "broken-pipe"],
+)
+def test_a_dropped_connection_becomes_a_retryable_transport_error(error):
+    """Windows reports WSAECONNABORTED where POSIX reports ECONNRESET; urllib wraps neither."""
+    import io
+
+    from ghl_client.errors import GhlTransportError
+    from ghl_client.transport import UrllibTransport
+
+    class Opener:
+        def open(self, request, timeout=None):
+            raise error
+
+    transport = UrllibTransport(opener=Opener())
+
+    with pytest.raises(GhlTransportError) as caught:
+        transport.send("GET", "https://example.invalid/contacts", headers={}, body=None, timeout=5)
+
+    assert caught.value.retryable is True
+
+
+def test_a_truncated_response_is_a_transport_error():
+    import http.client
+
+    from ghl_client.errors import GhlTransportError
+    from ghl_client.transport import UrllibTransport
+
+    class Opener:
+        def open(self, request, timeout=None):
+            raise http.client.BadStatusLine("")
+
+    transport = UrllibTransport(opener=Opener())
+
+    with pytest.raises(GhlTransportError):
+        transport.send("GET", "https://example.invalid/contacts", headers={}, body=None, timeout=5)
