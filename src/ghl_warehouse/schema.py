@@ -122,6 +122,7 @@ DIM_CONTACT = Table(
         Column("first_name", "TEXT"),
         Column("last_name", "TEXT"),
         Column("source", "TEXT"),
+        Column("tag_key", "TEXT", note="sorted, lowercased tags joined with commas"),
         Column("stage_key", "TEXT", role="foreign_key"),
         Column("created_date_key", "INTEGER", nullable=False, role="date_key"),
         Column("source_updated_at", "TEXT", nullable=False),
@@ -251,7 +252,7 @@ class StarSchema:
 
 
 STAR_SCHEMA = StarSchema(
-    version="2",
+    version="3",
     dimensions=(DIM_DATE, DIM_CONTACT, DIM_OPPORTUNITY, DIM_PIPELINE_STAGE),
     facts=(FACT_CONTACT_VERSION, FACT_OPPORTUNITY_VERSION),
 )

@@ -151,6 +151,16 @@ The mock server exposes `POST /__admin/opportunities` plus
 `POST /opportunities/search` and `GET /opportunities/{id}` so the HTTP path is
 tested end to end, not faked at the resource boundary.
 
+## Durable sink
+
+`InMemoryWarehouse` and `InMemoryOpportunityWarehouse` are reference implementations: they prove the load rules and nothing else. `SqliteWarehouse` keeps the same contract in a file, so the same payload sequence produces the same versions, statuses and current row. Parity is a test, not a claim: `tests/test_warehouse_sqlite.py` replays one sequence through both sinks and compares statuses, versions, hashes and `valid_to`.
+
+What the file adds beyond storage:
+
+* one transaction per record, because a crash between closing the old version and inserting the new one is worse than a refetch
+* a partial unique index on `(key) WHERE is_current = 1`, because the DDL cannot say "at most one current row"
+* `manifest()`, which hashes each table's ordered contents: same source data in, same digest out. It is a reproducibility check, never a report.
+
 ## Not built yet
 
 - Conversation and attribution facts (contact and opportunity grains today).

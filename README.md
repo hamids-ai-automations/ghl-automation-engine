@@ -346,7 +346,8 @@ Built and tested:
   interrupted and replayed runs proven idempotent by tests
 * opportunity fact at deal grain: stage moves versioned, stale payloads ignored,
   open value defined once, mock endpoints for `/opportunities` covered end to end
-* 335 tests, no network, no credentials
+* durable warehouse sink: `SqliteWarehouse` keeps the reference sink's contract in a file, one transaction per record, one current row per key enforced by index, and a manifest whose digest is reproducible for identical data
+* 355 tests, no network, no credentials
 
 Not built yet, on purpose — in this order:
 
