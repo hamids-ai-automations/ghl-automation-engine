@@ -1,4 +1,4 @@
-# Reporting warehouse (GHL-025)
+# Reporting warehouse (GHL-025, GHL-026)
 
 A star schema and an incremental contact loader. The point is not "we have a
 warehouse" — it is that a nightly sync is **safe to re-run**: no duplicate
@@ -12,8 +12,15 @@ dim_date ──┐
            ├── fact_contact_version   (grain: one contact version)
 dim_contact┘         │
                      └── contact_key, version
-dim_pipeline_stage   (declared, not yet populated by this loader)
+dim_pipeline_stage ─┐
+                    ├── fact_opportunity_version (grain: one opportunity version)
+dim_opportunity  ───┘
 ```
+
+`fact_contact_version` is loaded by the contact extractor, `fact_opportunity_version`
+by the opportunity extractor. Both facts share `dim_date` and the same watermark
+discipline; they are separate loads because the two endpoints page, filter and
+throttle independently.
 
 `ghl_warehouse.schema` validates itself at import: duplicate names, nullable
 primary keys, facts without measures, facts that cannot reach `dim_date`, and
@@ -96,11 +103,61 @@ watermark untouched.
 | payload identical to current version | counted as `unchanged`, no new version |
 | payload older than current version | counted as `stale_ignored` |
 
+## Opportunity grain (GHL-026)
+
+`ghl_warehouse.opportunities` adds a second fact at deal grain. It reuses the
+type-2 rule rather than re-implementing it, which is the whole argument for keeping
+one loader contract:
+
+| column | meaning |
+| --- | --- |
+| `opportunity_key` | `sha256(locationId, opportunityId)[:24]` |
+| `version` | 1, 2, 3... per deal |
+| `row_hash` | tracked attributes: name, status, stage, value, owner, contact |
+| `valid_from` / `valid_to` | observed `dateUpdated`; current row has `valid_to = NULL` |
+| `is_open` | `1` for `open`, `0` for `won` / `lost` / `abandoned` |
+| `stage_key` | joins `dim_pipeline_stage(pipelineId, pipelineStageId)` |
+
+A **stage move is a new version**, and that is the point: `stage_key` changing is
+the signal a pipeline funnel report is built from. The previous row is closed at the
+new observed timestamp, so "what was open value on any past date" is answerable
+without snapshotting the whole table.
+
+Two rules exist because the alternative is a quietly wrong report:
+
+- an **unknown status** is rejected (`InvalidRecordError`), not bucketed into
+  "other". A status the code has never seen means the provider changed or the
+  payload is wrong, and a funnel that silently grows an "other" bar is worse than a
+  failed load.
+- a **non-numeric `monetaryValue`** is rejected rather than coerced to `0`. Only
+  genuinely absent values are `0.0`. A deal worth "about 5k" is a data problem for
+  the operator, not a measurement.
+
+`InMemoryOpportunityWarehouse.open_value()` sums current open versions only, which
+is the one number a revenue conversation usually starts from.
+
+```python
+from ghl_warehouse import (
+    InMemoryOpportunityWarehouse, IncrementalOpportunityExtractor,
+)
+
+warehouse = InMemoryOpportunityWarehouse()
+extractor = IncrementalOpportunityExtractor(opportunities_resource, warehouse, marks)
+stats = extractor.run()
+print(stats.new_versions, warehouse.open_value())
+```
+
+The mock server exposes `POST /__admin/opportunities` plus
+`POST /opportunities/search` and `GET /opportunities/{id}` so the HTTP path is
+tested end to end, not faked at the resource boundary.
+
 ## Not built yet
 
-- Opportunity, conversation, and attribution facts (contact dimension only today).
+- Conversation and attribution facts (contact and opportunity grains today).
 - A durable SQL sink. `InMemoryWarehouse` is a reference implementation proving the
   load rules; production storage and migrations are not in this repo yet.
 - Server-side incremental filtering (see cost note above).
+- Opportunity value currency. `monetaryValue` is stored as a bare number; multi-currency
+  sub-accounts would need a currency key before any total means money.
 - Any performance or correctness claim against a live GoHighLevel sub-account. All
   evidence here is from the mock server and unit tests.

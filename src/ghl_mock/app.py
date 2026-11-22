@@ -9,7 +9,10 @@ Endpoints
     POST /contacts/upsert
     POST /contacts/search
     GET  /contacts/{id}
+    POST /opportunities/search
+    GET  /opportunities/{id}
     GET  /locations/{locationId}/customFields
+    POST /__admin/opportunities {opportunities: [...]}
     POST /__admin/inject     {path, status, times, retry_after}
     POST /__admin/reset
     GET  /__admin/requests
@@ -29,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from .store import ContactStore, CustomFieldStore
+from .store import ContactStore, CustomFieldStore, OpportunityStore
 
 DEFAULT_TOKEN = "test-token"
 
@@ -46,6 +49,7 @@ class Fault:
 @dataclass
 class MockState:
     store: ContactStore = field(default_factory=ContactStore)
+    opportunities: OpportunityStore = field(default_factory=OpportunityStore)
     fields: CustomFieldStore = field(default_factory=CustomFieldStore)
     faults: dict[str, list[Fault]] = field(default_factory=dict)
     requests: list[dict[str, Any]] = field(default_factory=list)
@@ -76,6 +80,7 @@ class MockState:
 
     def reset(self) -> None:
         self.store.reset()
+        self.opportunities.reset()
         self.fields = CustomFieldStore()
         self.faults.clear()
         self.requests.clear()
@@ -179,6 +184,11 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/__admin/requests" and method == "GET":
             return 200, {"requests": state.requests}, None
 
+        if path == "/__admin/opportunities" and method == "POST":
+            data = self._read_json()
+            seeded = state.opportunities.replace(data.get("opportunities") or [])
+            return 200, {"opportunities": seeded}, None
+
         if path == "/__admin/fields" and method == "POST":
             data = self._read_json()
             return 200, {"customFields": state.fields.replace(data.get("customFields") or [])}, None
@@ -203,6 +213,9 @@ class _Handler(BaseHTTPRequestHandler):
                 200,
                 {
                     "contacts": len(list(state.store.all_contacts())),
+                    "opportunities": len(
+                        state.opportunities.search(page_limit=100)["opportunities"]
+                    ),
                     "created": state.store.created,
                     "updated": state.store.updated,
                     "customFieldWrites": state.store.custom_field_writes,
@@ -211,9 +224,26 @@ class _Handler(BaseHTTPRequestHandler):
                 None,
             )
 
-        if path.startswith("/contacts"):
+        if path.startswith("/contacts") or path.startswith("/opportunities"):
             if not self._authorized():
                 return 401, {"error": "unauthorized", "message": "missing or bad token"}, None
+
+        if path == "/opportunities/search" and method == "POST":
+            body = self._read_json()
+            result = state.opportunities.search(
+                location_id=body.get("locationId"),
+                query=body.get("query"),
+                page_limit=int(body.get("pageLimit") or 100),
+                start_after_id=body.get("startAfterId"),
+            )
+            return 200, result, None
+
+        if path.startswith("/opportunities/") and method == "GET":
+            opportunity_id = path.split("/", 2)[2]
+            opportunity = state.opportunities.get(opportunity_id)
+            if opportunity is None:
+                return 404, {"error": "not_found"}, None
+            return 200, {"opportunity": opportunity.to_dict()}, None
 
         if path == "/contacts/upsert" and method == "POST":
             body = self._read_json()

@@ -308,6 +308,13 @@ stats = extractor.run()              # load, then advance
 stats.new_versions, stats.unchanged, stats.pages
 ```
 
+The same contract carries the **opportunity grain**: one type-2 fact per deal, where a
+stage move is a new version and the previous row is closed at the observed timestamp.
+`InMemoryOpportunityWarehouse.open_value()` sums current open deals only, so a funnel
+number has one definition. Unknown statuses and non-numeric `monetaryValue` are
+rejected rather than coerced — a load that fails loudly beats a funnel that grows an
+"other" bar.
+
 The load order is the design: read the mark, walk every page (a partial walk raises
 `IncompleteExtractError` and loads nothing), load rows, and only then advance the
 mark — as far as what was *loaded*, never what was *seen*. Watermarks are monotonic
@@ -337,7 +344,9 @@ Built and tested:
 * reporting warehouse: star schema validated at import, type-2 contact dimension
   keyed on a payload hash, monotonic watermarks advanced only after a load,
   interrupted and replayed runs proven idempotent by tests
-* 309 tests, no network, no credentials
+* opportunity fact at deal grain: stage moves versioned, stale payloads ignored,
+  open value defined once, mock endpoints for `/opportunities` covered end to end
+* 335 tests, no network, no credentials
 
 Not built yet, on purpose — in this order:
 
@@ -347,9 +356,9 @@ Not built yet, on purpose — in this order:
 4. the triage classifier and its labelled evaluation set (GHL-023 / GHL-024) —
    until that harness reports accuracy, cost and latency, no accuracy number is
    quoted for triage anywhere
-5. opportunity / conversation / attribution facts and a durable SQL sink for the
-   warehouse (GHL-026 / GHL-027); today the contact dimension is the only grain,
-   and `InMemoryWarehouse` is a reference sink, not storage
+5. conversation / attribution facts and a durable SQL sink for the warehouse
+   (GHL-027); contacts and opportunities are the two grains today, and the
+   in-memory sinks are reference implementations, not storage
 
 ## License
 

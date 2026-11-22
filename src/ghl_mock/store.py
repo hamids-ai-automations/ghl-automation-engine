@@ -117,6 +117,118 @@ class CustomFieldStore:
             return len(self._fields) != before
 
 
+@dataclass
+class Opportunity:
+    id: str
+    locationId: str
+    name: str | None = None
+    status: str = "open"
+    pipelineId: str | None = None
+    pipelineStageId: str | None = None
+    pipelineStageName: str | None = None
+    assignedTo: str | None = None
+    contactId: str | None = None
+    monetaryValue: Any = 0
+    dateAdded: str | None = None
+    dateUpdated: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "locationId": self.locationId,
+            "name": self.name,
+            "status": self.status,
+            "pipelineId": self.pipelineId,
+            "pipelineStageId": self.pipelineStageId,
+            "pipelineStageName": self.pipelineStageName,
+            "assignedTo": self.assignedTo,
+            "contactId": self.contactId,
+            "monetaryValue": self.monetaryValue,
+            "dateAdded": self.dateAdded,
+            "dateUpdated": self.dateUpdated,
+        }
+
+
+class OpportunityStore:
+    """Read-only opportunity fixture set for the warehouse tests.
+
+    Deliberately read-only: seeding happens through ``/__admin/opportunities``, so
+    a test declares the exact payload it wants to reconcile — including the ugly
+    ones (a status string that is not in ``KNOWN_STATUSES``, a monetaryValue that
+    is text). A store that "fixes" those payloads would hide the whole point.
+    """
+
+    def __init__(self, location_id: str = "loc_test") -> None:
+        self.location_id = location_id
+        self._opportunities: dict[str, Opportunity] = {}
+        self._order: list[str] = []
+        self._lock = threading.Lock()
+
+    def replace(self, payloads: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+        parsed: list[Opportunity] = []
+        for index, item in enumerate(payloads):
+            parsed.append(
+                Opportunity(
+                    id=str(item.get("id") or f"opp_{index + 1}"),
+                    locationId=str(item.get("locationId") or self.location_id),
+                    name=item.get("name"),
+                    status=str(item.get("status") or "open"),
+                    pipelineId=item.get("pipelineId"),
+                    pipelineStageId=item.get("pipelineStageId"),
+                    pipelineStageName=item.get("pipelineStageName"),
+                    assignedTo=item.get("assignedTo"),
+                    contactId=item.get("contactId"),
+                    monetaryValue=item.get("monetaryValue", 0),
+                    dateAdded=item.get("dateAdded"),
+                    dateUpdated=item.get("dateUpdated"),
+                )
+            )
+        with self._lock:
+            self._opportunities = {item.id: item for item in parsed}
+            self._order = [item.id for item in parsed]
+            return [item.to_dict() for item in parsed]
+
+    def get(self, opportunity_id: str) -> Opportunity | None:
+        return self._opportunities.get(opportunity_id)
+
+    def search(
+        self,
+        *,
+        location_id: str | None = None,
+        query: str | None = None,
+        page_limit: int = 100,
+        start_after_id: str | None = None,
+    ) -> dict[str, Any]:
+        page_limit = max(1, min(int(page_limit or 100), 100))
+        with self._lock:
+            items = [self._opportunities[i] for i in self._order]
+        if location_id:
+            items = [item for item in items if item.locationId == location_id]
+        if query:
+            needle = query.strip().lower()
+            items = [
+                item for item in items if needle in (item.name or "").lower()
+            ]
+        if start_after_id:
+            index = next(
+                (i for i, item in enumerate(items) if item.id == start_after_id), None
+            )
+            if index is not None:
+                items = items[index + 1 :]
+
+        page = items[:page_limit]
+        meta: dict[str, Any] = {"total": len(page)}
+        if len(items) > page_limit and page:
+            meta["startAfterId"] = page[-1].id
+            meta["nextCursor"] = page[-1].id
+        return {"opportunities": [item.to_dict() for item in page], "meta": meta}
+
+    def reset(self) -> None:
+        with self._lock:
+            self._opportunities.clear()
+            self._order.clear()
+
+
 class ContactStore:
     def __init__(self, location_id: str = "loc_test") -> None:
         self.location_id = location_id

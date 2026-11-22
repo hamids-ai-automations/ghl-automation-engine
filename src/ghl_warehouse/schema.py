@@ -20,8 +20,10 @@ __all__ = [
     "Column",
     "DIM_CONTACT",
     "DIM_DATE",
+    "DIM_OPPORTUNITY",
     "DIM_PIPELINE_STAGE",
     "FACT_CONTACT_VERSION",
+    "FACT_OPPORTUNITY_VERSION",
     "STAR_SCHEMA",
     "SchemaError",
     "StarSchema",
@@ -29,6 +31,7 @@ __all__ = [
     "column_names",
     "contact_key",
     "date_key",
+    "opportunity_key",
     "stage_key",
     "validate_schema",
 ]
@@ -131,6 +134,39 @@ DIM_CONTACT = Table(
 )
 
 
+DIM_OPPORTUNITY = Table(
+    name="dim_opportunity",
+    description=(
+        "Type-2 opportunity dimension, same contract as dim_contact: one row per "
+        "observed version, previous versions closed with valid_to. Identity is the "
+        "surrogate key, never the provider id, so a deleted-then-recreated "
+        "opportunity keeps its history attached."
+    ),
+    columns=(
+        Column("opportunity_key", "TEXT", nullable=False, role="key"),
+        Column("opportunity_id", "TEXT", nullable=False),
+        Column("location_id", "TEXT"),
+        Column("version", "INTEGER", nullable=False, role="attribute"),
+        Column("row_hash", "TEXT", nullable=False, role="attribute",
+               note="hash of tracked attributes; an equal hash is not a new version"),
+        Column("contact_key", "TEXT", role="foreign_key"),
+        Column("name", "TEXT"),
+        Column("status", "TEXT"),
+        Column("stage_key", "TEXT", role="foreign_key"),
+        Column("assigned_to", "TEXT"),
+        Column("source", "TEXT"),
+        Column("monetary_value", "REAL"),
+        Column("created_date_key", "INTEGER", nullable=False, role="date_key"),
+        Column("source_updated_at", "TEXT", nullable=False),
+        Column("valid_from", "TEXT", nullable=False),
+        Column("valid_to", "TEXT"),
+        Column("is_current", "INTEGER", nullable=False),
+    ),
+    primary_key=("opportunity_key", "version"),
+    kind="dimension",
+)
+
+
 DIM_PIPELINE_STAGE = Table(
     name="dim_pipeline_stage",
     description=(
@@ -170,6 +206,29 @@ FACT_CONTACT_VERSION = Table(
 )
 
 
+FACT_OPPORTUNITY_VERSION = Table(
+    name="fact_opportunity_version",
+    description=(
+        "Grain: one row per opportunity version. Measures describe the state that "
+        "version represented, so pipeline value over time is a sum over a date "
+        "range rather than a re-read of current records."
+    ),
+    columns=(
+        Column("opportunity_key", "TEXT", nullable=False, role="foreign_key"),
+        Column("version", "INTEGER", nullable=False, role="foreign_key"),
+        Column("observed_date_key", "INTEGER", nullable=False, role="date_key"),
+        Column("monetary_value", "REAL", nullable=False, role="measure",
+               note="value at this version, 0.0 when the provider reported none"),
+        Column("attributes_changed", "INTEGER", nullable=False, role="measure"),
+        Column("days_since_created", "INTEGER", nullable=False, role="measure"),
+        Column("is_open", "INTEGER", nullable=False, role="measure"),
+        Column("first_seen_at", "TEXT", nullable=False),
+    ),
+    primary_key=("opportunity_key", "version"),
+    kind="fact",
+)
+
+
 @dataclass(frozen=True)
 class StarSchema:
     version: str
@@ -192,9 +251,9 @@ class StarSchema:
 
 
 STAR_SCHEMA = StarSchema(
-    version="1",
-    dimensions=(DIM_DATE, DIM_CONTACT, DIM_PIPELINE_STAGE),
-    facts=(FACT_CONTACT_VERSION,),
+    version="2",
+    dimensions=(DIM_DATE, DIM_CONTACT, DIM_OPPORTUNITY, DIM_PIPELINE_STAGE),
+    facts=(FACT_CONTACT_VERSION, FACT_OPPORTUNITY_VERSION),
 )
 
 
@@ -257,6 +316,14 @@ def contact_key(location_id: str, contact_id: str) -> str:
     if not contact_id.strip():
         raise SchemaError("contact_id is required for a surrogate key")
     return _hash_key(location_id or "", contact_id, prefix="ct")
+
+
+def opportunity_key(location_id: str, opportunity_id: str) -> str:
+    """Deterministic surrogate key for an opportunity, same rules as contacts."""
+
+    if not opportunity_id.strip():
+        raise SchemaError("opportunity_id is required for a surrogate key")
+    return _hash_key(location_id or "", opportunity_id, prefix="op")
 
 
 def stage_key(pipeline_id: str, stage_id: str) -> str:

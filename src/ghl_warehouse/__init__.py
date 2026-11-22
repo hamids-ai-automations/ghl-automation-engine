@@ -1,9 +1,9 @@
-"""Reporting warehouse package (GHL-025).
+"""Reporting warehouse package (GHL-025 / GHL-026).
 
-Public surface: the star schema contract, the incremental contact extractor, and
-the watermark store it advances. The sink is pluggable on purpose — the reference
-:class:`~ghl_warehouse.sink.InMemoryWarehouse` exists to prove the load rules, not
-to be production storage.
+Public surface: the star schema contract, the incremental contact and opportunity
+extractors, and the watermark store they advance. Sinks are pluggable on purpose —
+the reference ``InMemoryWarehouse`` and ``InMemoryOpportunityWarehouse`` exist to
+prove the load rules, not to be production storage.
 """
 
 from .extractor import (
@@ -13,11 +13,25 @@ from .extractor import (
     IncompleteExtractError,
     IncrementalContactExtractor,
 )
+from .opportunities import (
+    KNOWN_STATUSES,
+    OPEN_STATUSES,
+    IncrementalOpportunityExtractor,
+    InMemoryOpportunityWarehouse,
+    OpportunityLoadResult,
+    OpportunityRecord,
+    OpportunitySink,
+    OpportunitySource,
+    normalise_opportunity,
+    opportunity_row_hash,
+)
 from .schema import (
     DIM_CONTACT,
     DIM_DATE,
+    DIM_OPPORTUNITY,
     DIM_PIPELINE_STAGE,
     FACT_CONTACT_VERSION,
+    FACT_OPPORTUNITY_VERSION,
     STAR_SCHEMA,
     Column,
     SchemaError,
@@ -25,6 +39,7 @@ from .schema import (
     Table,
     contact_key,
     date_key,
+    opportunity_key,
     validate_schema,
 )
 from .sink import (
@@ -49,8 +64,12 @@ __all__ = [
     "DEFAULT_OVERLAP_SECONDS",
     "DIM_CONTACT",
     "DIM_DATE",
+    "DIM_OPPORTUNITY",
     "DIM_PIPELINE_STAGE",
     "FACT_CONTACT_VERSION",
+    "FACT_OPPORTUNITY_VERSION",
+    "KNOWN_STATUSES",
+    "OPEN_STATUSES",
     "STAR_SCHEMA",
     "Collection",
     "Column",
@@ -58,13 +77,19 @@ __all__ = [
     "ContactSink",
     "ContactSource",
     "ExtractStats",
+    "InMemoryOpportunityWarehouse",
     "InMemoryWarehouse",
     "InMemoryWatermarkStore",
     "IncompleteExtractError",
     "IncrementalContactExtractor",
+    "IncrementalOpportunityExtractor",
     "InvalidRecordError",
     "JsonFileWatermarkStore",
     "LoadResult",
+    "OpportunityLoadResult",
+    "OpportunityRecord",
+    "OpportunitySink",
+    "OpportunitySource",
     "SchemaError",
     "StarSchema",
     "Table",
@@ -74,6 +99,9 @@ __all__ = [
     "contact_key",
     "date_key",
     "normalise_contact",
+    "normalise_opportunity",
+    "opportunity_key",
+    "opportunity_row_hash",
     "row_hash",
     "validate_schema",
 ]
