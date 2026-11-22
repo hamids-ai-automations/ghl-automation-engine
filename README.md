@@ -256,6 +256,37 @@ It ends with two contacts, the paid-search credit intact, and the drift refused
 before the first write. Write-up: [docs/CASE-STUDY-ATTRIBUTION.md](docs/CASE-STUDY-ATTRIBUTION.md)
 — figures that need a real deployment are marked `TBD`, not guessed.
 
+## Conversation triage
+
+`ghl_triage` starts where a messaging bot usually goes wrong: it decides **what
+kind of message this is and whether a human must take it**, before anything is
+drafted. Eight intents, and every one of them states what it is *not*.
+
+```python
+from ghl_triage import Intent, Entity, decide
+
+plan = decide(
+    Intent.APPOINTMENT,
+    0.93,
+    text="Can we move it to later next week?",
+    present_entities=[],          # no date was given
+)
+plan.escalate        # True
+plan.queue           # 'human_review'
+plan.reasons         # (EscalationReason.MISSING_ENTITY,)
+plan.auto_reply_allowed   # False — always, even when the message is clean
+```
+
+Escalation reasons, in fixed precedence: `classifier_error`, `empty_message`,
+`human_only_intent` (billing / opt-out / unclear), `human_requested`,
+`missing_entity`, `low_confidence` (below `0.55`), `repeated_contact` (3+ in a
+thread), `already_escalated`. Classification that fails at all goes through
+`fail_closed()`, which can only report `classifier_error` or `empty_message` —
+a failure is never dressed up as a confident routing decision.
+
+Taxonomy, the full escalation table and the failure contract:
+[docs/TRIAGE.md](docs/TRIAGE.md).
+
 ## Status
 
 Built and tested:
@@ -271,13 +302,19 @@ Built and tested:
 * attribution engine: append-only first-touch credit, event claim + upsert ledger,
   custom-field discovery with drift refusal, dry-run plans
 * attribution case study: reproducible demo + page, invariants pinned by tests
-* 198 tests, no network, no credentials
+* conversation triage: 8-intent taxonomy with stated exclusions, escalation policy
+  with recorded reasons and fixed precedence, fail-closed classification,
+  drafts-only by construction (`auto_reply_allowed` is never true)
+* 237 tests, no network, no credentials
 
 Not built yet, on purpose — in this order:
 
 1. live smoke tests behind an opt-in environment flag
 2. durable replay store adapter (Redis/Postgres) beyond the in-process default
 3. multi-touch weighting (first touch is the only model implemented today)
+4. the triage classifier and its labelled evaluation set (GHL-023 / GHL-024) —
+   until that harness reports accuracy, cost and latency, no accuracy number is
+   quoted for triage anywhere
 
 ## License
 
